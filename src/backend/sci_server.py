@@ -60,16 +60,10 @@ def build_adjacency_matrix(
     # Build the matrix using COO format
     values, row_idxs, col_idxs = list(), list(), list()
     for i, auid in enumerate(auids):
+        auid_set = set([auid,])
         eids = auid_eids[auid]
         co_auids = set(itertools.chain.from_iterable(eid_auids[eids].values))
-        co_auids = np.sort(
-            co_auids
-            - set(
-                [
-                    auid,
-                ]
-            )
-        )
+        co_auids = np.sort(co_auids - auid_set)
 
         col_idxs.extend(np.searchsorted(auids, co_auids).tolist())
         row_idxs.extend([i] * len(co_auids))
@@ -100,16 +94,12 @@ def calculate_prior_y(
         lambda eids: prior_y_aggregate_eid_score_func(eid_score[eids])
     )
 
-    auid_eids[auids] = auid_eids[auids].apply(
-        lambda eids: eids.map(eids["score"]).values
-    )
-
-    prior_y_path = f"./data/prior_y_{year}.parquet"
-    if os.path.exists(prior_y_path):
-        posterior_y_t_minus_1 = pd.read_parquet(prior_y_path)[auids]
+    # TODO: support an arbitrary number of years
+    posterior_y_path = f"./data/posterior_y_{year}.parquet"
+    if os.path.exists(posterior_y_path):
+        posterior_y_t_minus_1 = pd.read_parquet(posterior_y_path)[auids]
         prior_y = combine_posterior_prior_y_func(
             np.dstack([prior_y, posterior_y_t_minus_1]),
-            axis=1,
         )
 
     return prior_y
@@ -144,3 +134,23 @@ def get_data(
         )
 
         yield A, auids, prior_y
+
+
+def update_posterior(
+    auids: np.ndarray,
+    posterior_y_values: np.ndarray,
+    year: int,
+) -> None:
+
+    posterior_path = f"./data/posterior_y_{year}.parquet"
+    if os.path.exists(posterior_path):
+        existing_posterior_y = pd.read_parquet(posterior_path)
+        # should be safe as we handles auids as a set before this.
+        posterior_y = existing_posterior_y.combine_first(
+            pd.Series(posterior_y_values, index=auids)
+        )
+    else:
+        posterior_y = pd.Series(posterior_y_values, index=auids)
+
+    posterior_y.to_parquet(f"./data/posterior_y_{year}.parquet")
+

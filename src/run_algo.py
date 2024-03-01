@@ -1,4 +1,5 @@
 import argparse
+import functools
 import itertools
 from typing import Any, Callable, Dict, Iterable, Tuple, Union
 
@@ -47,7 +48,15 @@ def main(args: Dict[str, Any]):
     )
 
     if runtime == "sciserver":
-        get_data_func = sci_server.get_data
+        # need to add:
+        # - prior_y_aggregate_eid_score_func
+        # - combine_posterior_prior_y_func
+        # via partial to get_data
+        get_data_func = functools.partial(
+            sci_server.get_data,
+            prior_y_aggregate_eid_score_func=np.mean,
+            combine_posterior_prior_y_func=functools.partial(np.mean, axis=1),
+        )
         posterior_update_func = sci_server.update_posterior
     elif runtime == "elsevier":
         get_data_func = elsevier.get_data
