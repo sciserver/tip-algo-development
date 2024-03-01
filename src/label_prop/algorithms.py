@@ -16,7 +16,7 @@ Graph-Based Semi-Supervised Learning (GBSSL) implementation.
 
 import warnings
 from abc import ABCMeta, abstractmethod
-from typing import Optional, Self, Union
+from typing import Optional, Union
 
 import numpy as np
 from scipy import sparse
@@ -391,7 +391,7 @@ class CAMLP(Base):
 
         return self.Z.dot(B)
 
-    def fit(self, x, y) -> Self:
+    def fit(self, x, y):
         raise NotImplementedError(
             "Run `fit_predict_graph`, we don't care about maintaining self"
         )
@@ -413,7 +413,7 @@ class CAMLP(Base):
         An array of length y that has the propogated labels
         """
         self.graph = A
-        self.x_ = x
+        # self.x_ = x
         self.y_ = np.arange(2)
 
         self._arrange_params()

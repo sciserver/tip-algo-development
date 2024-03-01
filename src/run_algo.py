@@ -12,7 +12,6 @@ import src.label_prop.algorithms as algos
 
 MaybeSparseMatrix = Union[np.ndarray, sp.spmatrix]
 
-
 def run_algo_year(
     algo: algos.Base,
     year: int,
@@ -76,11 +75,11 @@ def main(args: Dict[str, Any]):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--runtime", type=str, required=True, default="sciserver")
-    parser.add_argument("--beta", type=float, required=True, default=0.1)
-    parser.add_argument("--max_iter", type=int, required=True, default=30)
-    parser.add_argument("--rtol", type=float, required=True, default=1e-6)
-    parser.add_argument("--atol", type=float, required=True, default=1e-6)
-    parser.add_argument("--years", type=int, required=True, nargs="+", default=[2010])
+    parser.add_argument("--runtime", type=str, default="sciserver")
+    parser.add_argument("--beta", type=float, default=0.1)
+    parser.add_argument("--max_iter", type=int, default=30)
+    parser.add_argument("--rtol", type=float, default=1e-6)
+    parser.add_argument("--atol", type=float, default=1e-6)
+    parser.add_argument("--years", type=int, nargs="+", default=[2010])
 
     main(args=vars(parser.parse_args()))
