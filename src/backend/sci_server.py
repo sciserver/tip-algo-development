@@ -111,7 +111,7 @@ def get_data(
     combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = np.mean,
 ) -> Iterable[Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]]:
     auid_eids = pd.read_parquet(f"./data/auid_eid_{year}.parquet")
-    eids = pd.read_parquet(f"./data/eid_{year}.parquet")
+    eids = pd.read_parquet(f"./data/eids_{year}.parquet")
 
     auid_eids = auid_eids.groupby("auid")["eid"].apply(list)  # auid -> eids
     eid_auids = eid_auids.groupby("eid")["auid"].apply(list)  # eid -> auids
