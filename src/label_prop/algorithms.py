@@ -14,6 +14,7 @@ Graph-Based Semi-Supervised Learning (GBSSL) implementation.
 # Authors: Yuto Yamaguchi <yamaguchi.yuto@aist.go.jp>
 # Lisence: MIT
 
+import logging
 import warnings
 from abc import ABCMeta, abstractmethod
 from typing import Optional, Union
@@ -368,7 +369,10 @@ class CAMLP(Base):
         return self.P_.dot(self.F_).dot(self.H) + self.B_
 
     def _build_normalization_term(self):
-        d = np.asarray(self.graph.sum(axis=1).T)
+        d = np.asarray(self.graph.sum(axis=1))
+        if len(d.shape) == 2:
+            d = d.flatten()
+        print(self.graph.shape, d.shape)
         return sparse.diags(1.0 / (1.0 + d * self.beta), offsets=0)
 
     def _build_propagation_matrix(self):
@@ -378,16 +382,21 @@ class CAMLP(Base):
         self,
         prior_b: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        assert len(prior_b.shape) == 1, "prior array should be 1d"
+        if prior_b is not None:
+            assert len(prior_b.shape) == 1, "prior array should be 1d"
 
         if prior_b is None:
             n_samples = self.graph.shape[0]
             n_classes = self.y_.max() + 1
             B = np.ones((n_samples, n_classes)) / float(n_classes)
-            B[self.x_] = 0
-            B[self.x_, self.y_] = 1
+            # we don't use this. if we don't get anything, assume uniform prior
+            # B[self.x_] = 0
+            # B[self.x_, self.y_] = 1
         else:
-            B = np.dstack([1 - prior_b, prior_b])
+            # this assumes just two class classification.
+            # the negative class is the first column and
+            # the positive class is the second
+            B = np.stack([1 - prior_b, prior_b], axis=1)
 
         return self.Z.dot(B)
 
@@ -401,7 +410,11 @@ class CAMLP(Base):
         A: Union[np.ndarray, sparse.spmatrix],
         prior_f: np.ndarray,
     ) -> np.ndarray:
-        """Fit a graph-based semi-supervised learning model
+        """Fit a graph-based semi-supervised learning model.
+
+        This function is designed specifically for the two class case
+        and for the TIP project, assumptions made here are not
+        generic.
 
         Parameters
         ----------
@@ -427,10 +440,10 @@ class CAMLP(Base):
         while remaining_iter > 0:
             F_new = self._propagate()
 
-            if self.check_tol and np.all_close(self.F_, F_new):
+            if self.check_tol and np.allclose(self.F_, F_new):
                 break
 
             self.F_ = F_new
             remaining_iter -= 1
 
-        return self.F_
+        return self.F_[:, 1]

@@ -1,4 +1,5 @@
 import itertools
+import logging
 import os
 import warnings
 from typing import Callable, Iterable, Iterator, List, Tuple
@@ -20,9 +21,9 @@ def extract_disconnected_auids(
 
     for auid in filter(lambda i: i in auids_to_explore, distinct_auids):
         connected_set = set(
-            list(
+            [
                 auid,
-            )
+            ]
         )
 
         eids = auid_eids[auid]
@@ -60,10 +61,14 @@ def build_adjacency_matrix(
     # Build the matrix using COO format
     values, row_idxs, col_idxs = list(), list(), list()
     for i, auid in enumerate(auids):
-        auid_set = set([auid,])
+        auid_set = set(
+            [
+                auid,
+            ]
+        )
         eids = auid_eids[auid]
         co_auids = set(itertools.chain.from_iterable(eid_auids[eids].values))
-        co_auids = np.sort(co_auids - auid_set)
+        co_auids = np.sort(list(co_auids - auid_set), axis=None)
 
         col_idxs.extend(np.searchsorted(auids, co_auids).tolist())
         row_idxs.extend([i] * len(co_auids))
@@ -84,7 +89,7 @@ def calculate_prior_y(
     eid_score: pd.Series,
     year: int,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
-    combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = np.mean,
+    combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = lambda arrs: np.mean(arrs, axis=1),
 ) -> np.ndarray:
 
     # get all of eids for each auid
@@ -97,9 +102,13 @@ def calculate_prior_y(
     # TODO: support an arbitrary number of years
     posterior_y_path = f"./data/posterior_y_{year}.parquet"
     if os.path.exists(posterior_y_path):
-        posterior_y_t_minus_1 = pd.read_parquet(posterior_y_path)[auids]
+        posterior_y_dframe = pd.read_parquet(posterior_y_path)
+        posterior_y_t_minus_1 = pd.Series(
+            data=posterior_y_dframe["score"].values,
+            index=posterior_y_dframe["eid"].values,
+        )[auids]
         prior_y = combine_posterior_prior_y_func(
-            np.dstack([prior_y, posterior_y_t_minus_1]),
+            np.stack([prior_y, posterior_y_t_minus_1], axis=1),
         )
 
     return prior_y
@@ -107,31 +116,47 @@ def calculate_prior_y(
 
 def get_data(
     year: int,
+    logger: logging.Logger = None,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
     combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = np.mean,
 ) -> Iterable[Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]]:
     auid_eids = pd.read_parquet(f"./data/auid_eid_{year}.parquet")
     eids = pd.read_parquet(f"./data/eids_{year}.parquet")
+    eid_scores = pd.Series(
+        data=eids["score"].values,
+        index=eids["eid"].values,
+    )
+    del eids
 
-    auid_eids = auid_eids.groupby("auid")["eid"].apply(list)  # auid -> eids
-    eid_auids = eid_auids.groupby("eid")["auid"].apply(list)  # eid -> auids
+    with log_time.LogTime(f"Grouping eid-auid by eid for {year}", logger):
+        eid_auids = auid_eids.groupby("eid")["auid"].apply(list)  # eid -> auids
+    with log_time.LogTime(f"Grouping auid-eid by auid for {year}", logger):
+        auid_eids = auid_eids.groupby("auid")["eid"].apply(list)  # auid -> eids
 
-    for connected_auids in extract_disconnected_auids(auid_eids, eid_auids):
-        auids, A = build_adjacency_matrix(
-            auid_eids,
-            eid_auids,
-            connected_auids,
-            False,
-        )
+    for i, connected_auids in enumerate(
+        extract_disconnected_auids(auid_eids, eid_auids), start=1
+    ):
+        with log_time.LogTime(
+            f"Building adjacency matrix for {year}, disconnected set {i}", logger
+        ):
+            auids, A = build_adjacency_matrix(
+                auid_eids,
+                eid_auids,
+                connected_auids,
+                False,
+            )
 
-        prior_y = calculate_prior_y(
-            auids,
-            auid_eids,
-            eids,
-            year,
-            prior_y_aggregate_eid_score_func,
-            combine_posterior_prior_y_func,
-        )
+        with log_time.LogTime(
+            f"Calculating prior_y for {year}, disconnected set {i}", logger
+        ):
+            prior_y = calculate_prior_y(
+                auids,
+                auid_eids,
+                eid_scores,
+                year,
+                prior_y_aggregate_eid_score_func,
+                combine_posterior_prior_y_func,
+            )
 
         yield A, auids, prior_y
 
@@ -152,5 +177,5 @@ def update_posterior(
     else:
         posterior_y = pd.Series(posterior_y_values, index=auids)
 
-    posterior_y.to_parquet(f"./data/posterior_y_{year}.parquet")
-
+    # convert series to a dataframe and save to parquet
+    posterior_y.to_frame(name="score").to_parquet(f"./data/posterior_y_{year}.parquet")

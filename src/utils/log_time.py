@@ -3,6 +3,7 @@
 
 import logging
 import time
+from typing import Optional
 
 
 class LogTime:
@@ -26,15 +27,15 @@ class LogTime:
     >>> Completed in 7.62939453125e-06 seconds
     """
 
-    def __init__(self, logger: logging.Logger, task_str: str):
+    def __init__(self, task_str: str, logger: Optional[logging.Logger] = None):
         """A context manager class for logging code timings and errors.
 
         Args:
-            logger (logging.Logger): The logger instance to use for logging
             task_str (str): The string describing the section of code being run
+            logger (logging.Logger): The logger instance to use for logging
 
         """
-        self.logger = logger
+        self.logger = logger if logger else PrintLogger("default_logger")
         self.task_str = task_str
 
     def __enter__(self):
@@ -48,33 +49,25 @@ class LogTime:
             self.logger.fatal(f"{exc_type}\n{exc_value}\n{traceback}")
 
 
-class DefaultLogTime:
-    """Same as LogTime but just prints. Useful for debugging"""
+class PrintLogger(logging.Logger):
+    """A simple logger that prints to stdout."""
 
-    def __init__(self, logger: logging.Logger, task_str: str):
-        self.logger = logger
-        self.task_str = task_str
+    def __init__(self, name: str):
+        super().__init__(name)
 
-    def __enter__(self):
-        print(f"Starting {self.task_str}")
-        self.start = time.time()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type is None:
-            print(f"Completed in {time.time() - self.start} seconds")
-        else:
-            print(f"{exc_type}\n{exc_value}\n{traceback}")
+    def _log(self, level, msg, args, exc_info=None, extra=None):
+        print(msg % args)
 
 
-class DontLogTime:
-    """Same as LogTime, but actually not. It does nothing"""
+# https://stackoverflow.com/a/11233293/2691018
+def setup_logger(name: str, log_file: str, level=logging.INFO):
+    """To setup as many loggers as you want"""
 
-    def __init__(self, logger: logging.Logger, task_str: str):
-        self.logger = logger
-        self.task_str = task_str
+    handler = logging.FileHandler(log_file)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 
-    def __enter__(self):
-        pass
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        pass
+    return logger

@@ -1,6 +1,7 @@
 import argparse
 import functools
 import itertools
+import logging
 from typing import Any, Callable, Dict, Iterable, Tuple, Union
 
 import numpy as np
@@ -9,30 +10,35 @@ import scipy.sparse as sp
 import src.backend.elsevier as elsevier
 import src.backend.sci_server as sci_server
 import src.label_prop.algorithms as algos
+import src.utils.log_time as log_time
 
 MaybeSparseMatrix = Union[np.ndarray, sp.spmatrix]
 
+
 def run_algo_year(
-    algo: algos.Base,
+    algo_instances: Iterable[algos.Base],
     year: int,
-    get_data_func: Callable[[int], Tuple[MaybeSparseMatrix, np.ndarray, np.ndarray]],
+    get_data_func: Callable[
+        [int, logging.Logger], Tuple[MaybeSparseMatrix, np.ndarray, np.ndarray]
+    ],
     posterior_update_func: Callable[[np.ndarray, np.ndarray, int], None],
+    log_dir: str,
 ) -> np.ndarray:
 
-    for A, auids, prior_y in get_data_func(year):
-        posterior_y = algo.fit_predict_graph(A, prior_y)
-        posterior_update_func(auids, posterior_y, year)
+    if log_dir:
+        logger = log_time.setup_logger(
+            f"run_algo_year_{year}", f"{log_dir}/run_algo_year_{year}.log"
+        )
+    else:
+        logger = log_time.PrintLogger(f"run_algo_year_{year}")
 
-
-def run_algo(
-    algos: Iterable[algos.Base],
-    years: Iterable[int],
-    get_data_func: Callable[[int], Tuple[MaybeSparseMatrix, np.ndarray, np.ndarray]],
-    posterior_update_func: Callable[[np.ndarray, np.ndarray, int], None],
-) -> None:
-
-    for algo, year in zip(algos, years):
-        run_algo_year(algo, year, get_data_func, posterior_update_func)
+    for i, (algo, (A, auids, prior_y)) in enumerate(
+        zip(algo_instances, get_data_func(year, logger)), start=1
+    ):
+        with log_time.LogTime(f"Fitting data for {year}, ajd matrix {i}", logger):
+            posterior_y = algo.fit_predict_graph(A, prior_y)
+        with log_time.LogTime(f"Updating posterior for {year}", logger):
+            posterior_update_func(auids, posterior_y, year)
 
 
 def main(args: Dict[str, Any]):
@@ -47,10 +53,6 @@ def main(args: Dict[str, Any]):
     )
 
     if runtime == "sciserver":
-        # need to add:
-        # - prior_y_aggregate_eid_score_func
-        # - combine_posterior_prior_y_func
-        # via partial to get_data
         get_data_func = functools.partial(
             sci_server.get_data,
             prior_y_aggregate_eid_score_func=np.mean,
@@ -69,6 +71,7 @@ def main(args: Dict[str, Any]):
             year,
             get_data_func=get_data_func,
             posterior_update_func=posterior_update_func,
+            log_dir=args.get("log_dir"),
         )
 
 
@@ -80,6 +83,14 @@ if __name__ == "__main__":
     parser.add_argument("--max_iter", type=int, default=30)
     parser.add_argument("--rtol", type=float, default=1e-6)
     parser.add_argument("--atol", type=float, default=1e-6)
-    parser.add_argument("--years", type=int, nargs="+", default=[2010])
+    parser.add_argument(
+        "--years",
+        type=int,
+        nargs="+",
+        default=[
+            2010,
+        ],
+    )
+    parser.add_argument("--log_dir", type=str, default="./logs")
 
     main(args=vars(parser.parse_args()))
