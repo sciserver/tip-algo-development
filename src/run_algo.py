@@ -2,6 +2,7 @@ import argparse
 import functools
 import itertools
 import logging
+import os
 from typing import Any, Callable, Dict, Iterable, Tuple, Union
 
 import numpy as np
@@ -42,6 +43,8 @@ def run_algo_year(
 
 
 def main(args: Dict[str, Any]):
+
+    os.makedirs(args.get("log_dir"), exist_ok=True)
 
     runtime = args.get("runtime")
 
@@ -89,6 +92,7 @@ if __name__ == "__main__":
         nargs="+",
         default=[
             2010,
+            2011,
         ],
     )
     parser.add_argument("--log_dir", type=str, default="./logs")

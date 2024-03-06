@@ -90,6 +90,7 @@ def calculate_prior_y(
     year: int,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
     combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = lambda arrs: np.mean(arrs, axis=1),
+    posterior_y_missing_value: float = 0.5,
 ) -> np.ndarray:
 
     # get all of eids for each auid
@@ -103,10 +104,20 @@ def calculate_prior_y(
     posterior_y_path = f"./data/posterior_y_{year}.parquet"
     if os.path.exists(posterior_y_path):
         posterior_y_dframe = pd.read_parquet(posterior_y_path)
+
+        known_auids = posterior_y_dframe.index.values
+        new_auids = set(auids) - set(known_auids)
         posterior_y_t_minus_1 = pd.Series(
             data=posterior_y_dframe["score"].values,
-            index=posterior_y_dframe["eid"].values,
-        )[auids]
+            index=known_auids,
+        )
+
+        if new_auids:
+            for auid in new_auids:
+                posterior_y_t_minus_1[auid] = posterior_y_missing_value
+            posterior_y_t_minus_1.sort_index(inplace=True)
+
+
         prior_y = combine_posterior_prior_y_func(
             np.stack([prior_y, posterior_y_t_minus_1], axis=1),
         )
