@@ -1,3 +1,25 @@
+# MIT License
+
+# Copyright (c) 2024 The Johns Hopkins University, Institute for Data Intensive Engineering and Science
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import argparse
 import functools
 import itertools
@@ -25,6 +47,21 @@ def run_algo_year(
     posterior_update_func: Callable[[np.ndarray, np.ndarray, int], None],
     log_dir: str,
 ) -> np.ndarray:
+    """Run the given algorithm instances for the given year.
+
+
+    Args:
+        algo_instances (Iterable[algos.Base]): An iterable with the algorithm
+            instances to run.
+        year (int): The year to run the algorithm instances for.
+        get_data_func (Callable[[int, logging.Logger], Tuple[MaybeSparseMatrix, np.ndarray, np.ndarray]]): A function that returns the data for the given year.
+        posterior_update_func (Callable[[np.ndarray, np.ndarray, int], None]): A function that updates the posterior for the given year.
+        log_dir (str): The directory to save the logs to.
+
+    Returns:
+        np.ndarray: The posterior for the given year.
+
+    """
 
     if log_dir:
         logger = log_time.setup_logger(
@@ -43,6 +80,7 @@ def run_algo_year(
 
 
 def main(args: Dict[str, Any]):
+    """Run the algorithm for the given arguments."""
 
     os.makedirs(args.get("log_dir"), exist_ok=True)
 

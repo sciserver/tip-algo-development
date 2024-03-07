@@ -3,7 +3,7 @@
 # Lisence: MIT
 # At: https://github.com/yamaguchiyuto/label_propagation
 
-# Updated by Ryan Hausen
+# Updated by Ryan Hausen, The Johns Hopkins University, Institute for Data Intensive Engineering and Science
 # License: MIT
 # At: https://github.com/sciserver/label_propagation
 

@@ -1,8 +1,30 @@
+# MIT License
+
+# Copyright (c) 2024 The Johns Hopkins University, Institute for Data Intensive Engineering and Science
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import itertools
 import logging
 import os
 import warnings
-from typing import Callable, Iterable, Iterator, List, Tuple
+from typing import Callable, Iterable, Iterator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -15,6 +37,17 @@ def extract_disconnected_auids(
     auid_eids: pd.Series,
     eid_auids: pd.Series,
 ) -> Iterator[List[int]]:
+    """Extracts disconnected sets of auids from the given auids and eids.
+
+    Args:
+        auid_eids (pd.Series): A pandas series with auids as the index and eids
+                               as the values.
+        eid_auids (pd.Series): A pandas series with eids as the index and auids
+                               as the values.
+
+    Yields:
+        Iterator[List[int]]: An iterator with the disconnected sets of auids.
+    """
 
     distinct_auids = auid_eids.index.values
     auids_to_explore = set(distinct_auids)
@@ -49,11 +82,29 @@ def build_adjacency_matrix(
     auid_eids: pd.Series,
     eid_auids: pd.Series,
     auids: List[int],
-    weighted: bool = False,
+    weights: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, sparse.csr_matrix]:
+    """Builds an adjacency matrix from the given auids and eids.
 
-    if weighted:
-        raise NotImplementedError("Weighted adjacency matrix not implemented.")
+    Uses a breadth-first search to find the connected auids and then builds the
+    adjacency matrix.
+
+    Args:
+        auid_eids (pd.Series): A pandas series with auids as the index and eids
+            as the values.
+        eid_auids (pd.Series): A pandas series with eids as the index and auids
+            as the values.
+        auids (List[int]): The auids to build the adjacency matrix from.
+        weights (np.ndarray, optional): The weights to use for the adjacency
+            matrix where the weights are in the same order as `auids`. The
+            matrix will inherit its type from the weight vector. If None, the
+            matrix defaults 1's with values in the matrix being 1/0 with type
+            bool. Defaults to None.
+
+    Returns:
+        Tuple[np.ndarray, sparse.csr_matrix]: A tuple with the auids and the
+                                              adjacency matrix.
+    """
 
     # this will be used as the index for assigning the row and column indices
     auids = np.sort(auids)
@@ -117,10 +168,13 @@ def calculate_prior_y(
                 posterior_y_t_minus_1[auid] = posterior_y_missing_value
             posterior_y_t_minus_1.sort_index(inplace=True)
 
-
-        prior_y = combine_posterior_prior_y_func(
-            np.stack([prior_y, posterior_y_t_minus_1], axis=1),
-        )
+        if len(posterior_y_t_minus_1) > 0:
+            print(posterior_y_t_minus_1.shape, prior_y.shape)
+            print(posterior_y_t_minus_1)
+            print(prior_y)
+            prior_y = combine_posterior_prior_y_func(
+                np.stack([prior_y, posterior_y_t_minus_1], axis=1),
+            )
 
     return prior_y
 
