@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import functools
 import itertools
 import logging
 import os
@@ -32,6 +33,8 @@ import scipy.sparse as sparse
 
 import src.utils.log_time as log_time
 
+def default_combine_posterior_prior_y_func(arrs: List[np.ndarray]) -> np.ndarray:
+    return np.mean(np.stack(arrs, axis=1), axis=1)
 
 def extract_disconnected_auids(
     auid_eids: pd.Series,
@@ -82,7 +85,7 @@ def build_adjacency_matrix(
     auid_eids: pd.Series,
     eid_auids: pd.Series,
     auids: List[int],
-    weights: Optional[np.ndarray] = None,
+    weights_f: Optional[Callable[[List[int], List[int]], List[float]]] = lambda x, y: np.ones(len(x)),
 ) -> Tuple[np.ndarray, sparse.csr_matrix]:
     """Builds an adjacency matrix from the given auids and eids.
 
@@ -107,7 +110,8 @@ def build_adjacency_matrix(
     """
 
     # this will be used as the index for assigning the row and column indices
-    auids = np.sort(auids)
+    auid_idxs = np.argsort(auids)
+    auids = auids[auid_idxs]
 
     # Build the matrix using COO format
     values, row_idxs, col_idxs = list(), list(), list()
@@ -123,7 +127,9 @@ def build_adjacency_matrix(
 
         col_idxs.extend(np.searchsorted(auids, co_auids).tolist())
         row_idxs.extend([i] * len(co_auids))
-        values.extend([True] * len(co_auids))
+        values.extend(weights_f([i] * len(co_auids), co_auids))
+
+        values.extend(list(itertools.starmap(weights_f, [auid] * len(co_auids), co_auids)))
 
     A = sparse.coo_matrix(
         (values, (row_idxs, col_idxs)),
@@ -140,7 +146,7 @@ def calculate_prior_y(
     eid_score: pd.Series,
     year: int,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
-    combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = lambda arrs: np.mean(arrs, axis=1),
+    combine_posterior_prior_y_func: Callable[[List[np.ndarray]], np.ndarray] = default_combine_posterior_prior_y_func,
     posterior_y_missing_value: float = 0.5,
 ) -> np.ndarray:
 
@@ -162,15 +168,23 @@ def calculate_prior_y(
             data=posterior_y_dframe["score"].values,
             index=known_auids,
         )
+        del posterior_y_dframe
 
+        # if there are new ids tat we haven't seen before, we need to add them
+        # with the default value.
         if new_auids:
             for auid in new_auids:
                 posterior_y_t_minus_1[auid] = posterior_y_missing_value
             posterior_y_t_minus_1.sort_index(inplace=True)
 
+        # There is a chance that there are less auids in the prior_y than in the
+        # posterior_y. If that is the case, we need to limit the calculation
+        # to the auids that are in both.
         if len(posterior_y_t_minus_1) > 0:
             print(posterior_y_t_minus_1.shape, prior_y.shape)
             print(posterior_y_t_minus_1)
+            posterior_matched = posterior_y_t_minus_1.index.intersection(prior_y.index)
+            posterior_y_t_minus_1 = posterior_y_t_minus_1[posterior_matched]
             print(prior_y)
             prior_y = combine_posterior_prior_y_func(
                 np.stack([prior_y, posterior_y_t_minus_1], axis=1),
@@ -184,7 +198,13 @@ def get_data(
     logger: logging.Logger = None,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
     combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = np.mean,
+    adj_mat_dtype: np.dtype = np.bool,
+    numeric_types: np.dtype = np.float32,
+    operate_on_disconnected_sets: bool = False,
 ) -> Iterable[Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]]:
+
+    os.makedirs("./data/cache", exist_ok=True)
+
     auid_eids = pd.read_parquet(f"./data/auid_eid_{year}.parquet")
     eids = pd.read_parquet(f"./data/eids_{year}.parquet")
     eid_scores = pd.Series(
@@ -198,18 +218,33 @@ def get_data(
     with log_time.LogTime(f"Grouping auid-eid by auid for {year}", logger):
         auid_eids = auid_eids.groupby("auid")["eid"].apply(list)  # auid -> eids
 
+    if operate_on_disconnected_sets:
+        sub_graph_id__auids = enumerate(
+            extract_disconnected_auids(auid_eids, eid_auids), start=1
+        )
+    else:
+        sub_graph_id__auids = [(0, auid_eids.index.values)]
+
+    adj_mat_func = functools.partial(build_adjacency_matrix, auid_eids, eid_auids)
+    auids, A = zip(*map(adj_mat_func, sub_graph_id__auids))
+
     for i, connected_auids in enumerate(
         extract_disconnected_auids(auid_eids, eid_auids), start=1
     ):
         with log_time.LogTime(
             f"Building adjacency matrix for {year}, disconnected set {i}", logger
         ):
-            auids, A = build_adjacency_matrix(
-                auid_eids,
-                eid_auids,
-                connected_auids,
-                False,
-            )
+            if not os.path.exists(f"./data/cache/adjacency_matrix_{year}_{i}.npz"):
+                auids, A = build_adjacency_matrix(
+                    auid_eids,
+                    eid_auids,
+                    connected_auids,
+                )
+                sparse.save_npz(f"./data/cache/adjacency_matrix_{year}_{i}.npz", A)
+                np.save(f"./data/cache/auids_{year}_{i}.npy", auids)
+            else:
+                A = sparse.load_npz(f"./data/cache/adjacency_matrix_{year}_{i}.npz")
+                auids = np.load(f"./data/cache/auids_{year}_{i}.npy")
 
         with log_time.LogTime(
             f"Calculating prior_y for {year}, disconnected set {i}", logger
@@ -234,7 +269,11 @@ def update_posterior(
 
     posterior_path = f"./data/posterior_y_{year}.parquet"
     if os.path.exists(posterior_path):
-        existing_posterior_y = pd.read_parquet(posterior_path)
+        existing_posterior_y_df = pd.read_parquet(posterior_path)
+        existing_posterior_y = pd.Series(
+            data=existing_posterior_y_df["score"].values,
+            index=existing_posterior_y_df.index.values,
+        )
         # should be safe as we handles auids as a set before this.
         posterior_y = existing_posterior_y.combine_first(
             pd.Series(posterior_y_values, index=auids)
