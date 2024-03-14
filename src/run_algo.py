@@ -98,6 +98,7 @@ def main(args: Dict[str, Any]):
             sci_server.get_data,
             prior_y_aggregate_eid_score_func=np.mean,
             combine_posterior_prior_y_func=functools.partial(np.mean, axis=1),
+            operate_on_subgraphs_separately=args.get("parse_subgraphs_separately"),
         )
         posterior_update_func = sci_server.update_posterior
     elif runtime == "elsevier":
@@ -113,6 +114,7 @@ def main(args: Dict[str, Any]):
             get_data_func=get_data_func,
             posterior_update_func=posterior_update_func,
             log_dir=args.get("log_dir"),
+
         )
 
 
@@ -134,5 +136,10 @@ if __name__ == "__main__":
         ],
     )
     parser.add_argument("--log_dir", type=str, default="./logs")
+    parser.add_argument(
+        '--parse_subgraphs_separately',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
 
     main(args=vars(parser.parse_args()))

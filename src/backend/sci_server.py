@@ -85,7 +85,8 @@ def build_adjacency_matrix(
     auid_eids: pd.Series,
     eid_auids: pd.Series,
     auids: List[int],
-    weights_f: Optional[Callable[[List[int], List[int]], List[float]]] = lambda x, y: np.ones(len(x)),
+    weights_f: Optional[Callable[[List[int], List[int]], List[float]]] = lambda x, y: np.ones(len(x)).tolist(),
+    dtype: np.dtype = bool,
 ) -> Tuple[np.ndarray, sparse.csr_matrix]:
     """Builds an adjacency matrix from the given auids and eids.
 
@@ -106,7 +107,7 @@ def build_adjacency_matrix(
 
     Returns:
         Tuple[np.ndarray, sparse.csr_matrix]: A tuple with the auids and the
-                                              adjacency matrix.
+            adjacency matrix.
     """
 
     # this will be used as the index for assigning the row and column indices
@@ -127,14 +128,12 @@ def build_adjacency_matrix(
 
         col_idxs.extend(np.searchsorted(auids, co_auids).tolist())
         row_idxs.extend([i] * len(co_auids))
-        values.extend(weights_f([i] * len(co_auids), co_auids))
-
-        values.extend(list(itertools.starmap(weights_f, [auid] * len(co_auids), co_auids)))
+        values.extend(weights_f([auid] * len(co_auids), co_auids))
 
     A = sparse.coo_matrix(
         (values, (row_idxs, col_idxs)),
         shape=(len(auids), len(auids)),
-        dtype=bool,
+        dtype=dtype,
     ).tocsr()
 
     return auids, A
@@ -198,9 +197,9 @@ def get_data(
     logger: logging.Logger = None,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
     combine_posterior_prior_y_func: Callable[[np.ndarray], np.ndarray] = np.mean,
-    adj_mat_dtype: np.dtype = np.bool,
+    adj_mat_dtype: np.dtype = bool,
     numeric_types: np.dtype = np.float32,
-    operate_on_disconnected_sets: bool = False,
+    operate_on_subgraphs_separately: bool = False,
 ) -> Iterable[Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]]:
 
     os.makedirs("./data/cache", exist_ok=True)
@@ -218,48 +217,49 @@ def get_data(
     with log_time.LogTime(f"Grouping auid-eid by auid for {year}", logger):
         auid_eids = auid_eids.groupby("auid")["eid"].apply(list)  # auid -> eids
 
-    if operate_on_disconnected_sets:
-        sub_graph_id__auids = enumerate(
-            extract_disconnected_auids(auid_eids, eid_auids), start=1
+    adj_mat_func = functools.partial(
+        build_adjacency_matrix,
+        auid_eids,
+        eid_auids,
+        dtype=adj_mat_dtype,
+    )
+
+    if operate_on_subgraphs_separately:
+        auids_iter = extract_disconnected_auids(auid_eids, eid_auids)
+        #TODO: adding caching for large subgraphs
+        auids, A = zip(*map(adj_mat_func, auids_iter))
+
+        prior_y = calculate_prior_y(
+            auids,
+            auid_eids,
+            eid_scores,
+            year,
+            prior_y_aggregate_eid_score_func,
+            combine_posterior_prior_y_func,
         )
-    else:
-        sub_graph_id__auids = [(0, auid_eids.index.values)]
-
-    adj_mat_func = functools.partial(build_adjacency_matrix, auid_eids, eid_auids)
-    auids, A = zip(*map(adj_mat_func, sub_graph_id__auids))
-
-    for i, connected_auids in enumerate(
-        extract_disconnected_auids(auid_eids, eid_auids), start=1
-    ):
-        with log_time.LogTime(
-            f"Building adjacency matrix for {year}, disconnected set {i}", logger
-        ):
-            if not os.path.exists(f"./data/cache/adjacency_matrix_{year}_{i}.npz"):
-                auids, A = build_adjacency_matrix(
-                    auid_eids,
-                    eid_auids,
-                    connected_auids,
-                )
-                sparse.save_npz(f"./data/cache/adjacency_matrix_{year}_{i}.npz", A)
-                np.save(f"./data/cache/auids_{year}_{i}.npy", auids)
-            else:
-                A = sparse.load_npz(f"./data/cache/adjacency_matrix_{year}_{i}.npz")
-                auids = np.load(f"./data/cache/auids_{year}_{i}.npy")
-
-        with log_time.LogTime(
-            f"Calculating prior_y for {year}, disconnected set {i}", logger
-        ):
-            prior_y = calculate_prior_y(
-                auids,
-                auid_eids,
-                eid_scores,
-                year,
-                prior_y_aggregate_eid_score_func,
-                combine_posterior_prior_y_func,
-            )
 
         yield A, auids, prior_y
+    else:
+        # calculating the adjacency matrix for the entire graph can take a long
+        # time. We cache the result to avoid recalculating it.
+        if not os.path.exists(f"./data/cache/adjacency_matrix_{year}.npz"):
+            auids, A = adj_mat_func(auid_eids.index.values)
+            sparse.save_npz(f"./data/cache/adjacency_matrix_{year}.npz", A)
+            np.save(f"./data/cache/auids_{year}.npy", auids)
+        else:
+            A = sparse.load_npz(f"./data/cache/adjacency_matrix_{year}.npz")
+            auids = np.load(f"./data/cache/auids_{year}.npy")
 
+        prior_y = calculate_prior_y(
+            auids,
+            auid_eids,
+            eid_scores,
+            year,
+            prior_y_aggregate_eid_score_func,
+            combine_posterior_prior_y_func,
+        )
+
+        return iter([(A, auids, prior_y)])
 
 def update_posterior(
     auids: np.ndarray,
