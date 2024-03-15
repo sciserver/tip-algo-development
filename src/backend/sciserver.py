@@ -20,12 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""The SciServer backend for the data handling."""
+
 import functools
 import itertools
 import logging
 import os
 import warnings
-from typing import Callable, Iterable, Iterator, List, Optional, Tuple
+from typing import Callable, Iterable, Iterator, List, NewType, Tuple
 
 import numpy as np
 import pandas as pd
@@ -33,8 +35,26 @@ import scipy.sparse as sparse
 
 import src.utils.log_time as log_time
 
+
 def default_combine_posterior_prior_y_func(arrs: List[np.ndarray]) -> np.ndarray:
+    """Default function for combining the posterior for years t-1..t-n and the prior for year t.
+
+    The default function is to take the mean of the posterior and prior values.
+
+    Args:
+        arrs (List[np.ndarray]): A list of arrays to combine. The arrays are always
+            ordered from the oldest to the newest.
+
+    Returns:
+        np.ndarray: The combined array.
+
+    """
+
+    if any(arr.ndim > 1 for arr in arrs):
+        raise ValueError("All arrays must be 1D.")
+
     return np.mean(np.stack(arrs, axis=1), axis=1)
+
 
 def extract_disconnected_auids(
     auid_eids: pd.Series,
@@ -85,7 +105,9 @@ def build_adjacency_matrix(
     auid_eids: pd.Series,
     eid_auids: pd.Series,
     auids: List[int],
-    weights_f: Optional[Callable[[List[int], List[int]], List[float]]] = lambda x, y: np.ones(len(x)).tolist(),
+    weights_f: Callable[[List[int], List[int]], List[float]] = lambda x, y: np.ones(
+        len(x)
+    ).tolist(),
     dtype: np.dtype = bool,
 ) -> Tuple[np.ndarray, sparse.csr_matrix]:
     """Builds an adjacency matrix from the given auids and eids.
@@ -99,11 +121,12 @@ def build_adjacency_matrix(
         eid_auids (pd.Series): A pandas series with eids as the index and auids
             as the values.
         auids (List[int]): The auids to build the adjacency matrix from.
-        weights (np.ndarray, optional): The weights to use for the adjacency
-            matrix where the weights are in the same order as `auids`. The
-            matrix will inherit its type from the weight vector. If None, the
-            matrix defaults 1's with values in the matrix being 1/0 with type
-            bool. Defaults to None.
+        weights_f (Callable[[List[int], List[int]], List[float]]]): A function
+            that takes two lists of auids and returns a list of weights for the
+            edges between the auids. Defaults to a function that returns a list
+            of ones.
+        dtype (np.dtype): The data type of the adjacency matrix. Defaults to
+            bool.
 
     Returns:
         Tuple[np.ndarray, sparse.csr_matrix]: A tuple with the auids and the
@@ -145,7 +168,9 @@ def calculate_prior_y(
     eid_score: pd.Series,
     year: int,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
-    combine_posterior_prior_y_func: Callable[[List[np.ndarray]], np.ndarray] = default_combine_posterior_prior_y_func,
+    combine_posterior_prior_y_func: Callable[
+        [List[np.ndarray]], np.ndarray
+    ] = default_combine_posterior_prior_y_func,
     posterior_y_missing_value: float = 0.5,
 ) -> np.ndarray:
 
@@ -226,7 +251,7 @@ def get_data(
 
     if operate_on_subgraphs_separately:
         auids_iter = extract_disconnected_auids(auid_eids, eid_auids)
-        #TODO: adding caching for large subgraphs
+        # TODO: adding caching for large subgraphs
         auids, A = zip(*map(adj_mat_func, auids_iter))
 
         prior_y = calculate_prior_y(
@@ -240,26 +265,29 @@ def get_data(
 
         yield A, auids, prior_y
     else:
-        # calculating the adjacency matrix for the entire graph can take a long
-        # time. We cache the result to avoid recalculating it.
-        if not os.path.exists(f"./data/cache/adjacency_matrix_{year}.npz"):
-            auids, A = adj_mat_func(auid_eids.index.values)
-            sparse.save_npz(f"./data/cache/adjacency_matrix_{year}.npz", A)
-            np.save(f"./data/cache/auids_{year}.npy", auids)
-        else:
-            A = sparse.load_npz(f"./data/cache/adjacency_matrix_{year}.npz")
-            auids = np.load(f"./data/cache/auids_{year}.npy")
+        with log_time.LogTime(f"Building adjacency matrix", logger):
+            # calculating the adjacency matrix for the entire graph can take a long
+            # time. We cache the result to avoid recalculating it.
+            if not os.path.exists(f"./data/cache/adjacency_matrix_{year}.npz"):
+                auids, A = adj_mat_func(auid_eids.index.values)
+                sparse.save_npz(f"./data/cache/adjacency_matrix_{year}.npz", A)
+                np.save(f"./data/cache/auids_{year}.npy", auids)
+            else:
+                A = sparse.load_npz(f"./data/cache/adjacency_matrix_{year}.npz")
+                auids = np.load(f"./data/cache/auids_{year}.npy")
 
-        prior_y = calculate_prior_y(
-            auids,
-            auid_eids,
-            eid_scores,
-            year,
-            prior_y_aggregate_eid_score_func,
-            combine_posterior_prior_y_func,
-        )
+        with log_time.LogTime(f"Calculating prior", logger):
+            prior_y = calculate_prior_y(
+                auids,
+                auid_eids,
+                eid_scores,
+                year,
+                prior_y_aggregate_eid_score_func,
+                combine_posterior_prior_y_func,
+            )
 
         return iter([(A, auids, prior_y)])
+
 
 def update_posterior(
     auids: np.ndarray,

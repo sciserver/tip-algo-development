@@ -114,7 +114,6 @@ def main(args: Dict[str, Any]):
             get_data_func=get_data_func,
             posterior_update_func=posterior_update_func,
             log_dir=args.get("log_dir"),
-
         )
 
 
@@ -137,7 +136,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument(
-        '--parse_subgraphs_separately',
+        "--parse_subgraphs_separately",
         action=argparse.BooleanOptionalAction,
         default=False,
     )
