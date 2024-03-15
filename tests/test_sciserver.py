@@ -23,6 +23,7 @@
 """Testing for the SciServer backend."""
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import src.backend.sciserver as ss
@@ -76,5 +77,68 @@ def test_default_combine_posterior_prior_y_func_fails_for_wrong_shape():
 def test_extract_disconnected_auids():
     """Tests the extract_disconnected_auids function."""
 
-    auid_eids = None
-    eid_auids = None
+    auid_eids = pd.Series(
+        index = [1, 2, 3, 4],
+        data = [
+            [10, 20],
+            [20],
+            [10],
+            [30],
+        ],
+    )
+    eid_auids = pd.Series(
+        index = [10, 20, 30],
+        data = [
+            [1, 3],
+            [1, 2],
+            [4],
+        ],
+    )
+
+    expected_result = [
+        set([1, 2, 3]),
+        set([4])
+    ]
+
+    result = list(map(set, ss.extract_disconnected_auids(auid_eids, eid_auids)))
+
+    assert result == expected_result
+
+
+def test_build_adjacency_matrix():
+    """Tests the build_adjacency_matrix function."""
+
+    auid_eids = pd.Series(
+        index = [1, 2, 3, 4],
+        data = [
+            [10, 20],
+            [20],
+            [10],
+            [30],
+        ],
+    )
+    eid_auids = pd.Series(
+        index = [10, 20, 30],
+        data = [
+            [1, 3],
+            [1, 2],
+            [4],
+        ],
+    )
+
+    expected_result = np.array([
+        [0, 1, 1, 0],
+        [1, 0, 0, 0],
+        [1, 0, 0, 0],
+        [0, 0, 0, 0],
+    ])
+
+    result_auids, result_A = ss.build_adjacency_matrix(
+        auid_eids,
+        eid_auids,
+        auid_eids.index,
+    )
+
+    assert np.allclose(result_A.todense(), expected_result)
+    assert np.allclose(result_auids, auid_eids.index)
+

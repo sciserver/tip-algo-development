@@ -310,4 +310,4 @@ def update_posterior(
         posterior_y = pd.Series(posterior_y_values, index=auids)
 
     # convert series to a dataframe and save to parquet
-    posterior_y.to_frame(name="score").to_parquet(f"./data/posterior_y_{year}.parquet")
+    posterior_y.to_frame(name="score").to_parquet(posterior_path)

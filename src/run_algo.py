@@ -31,7 +31,7 @@ import numpy as np
 import scipy.sparse as sp
 
 import src.backend.elsevier as elsevier
-import src.backend.sci_server as sci_server
+import src.backend.sciserver as sciserver
 import src.label_prop.algorithms as algos
 import src.utils.log_time as log_time
 
@@ -95,12 +95,12 @@ def main(args: Dict[str, Any]):
 
     if runtime == "sciserver":
         get_data_func = functools.partial(
-            sci_server.get_data,
+            sciserver.get_data,
             prior_y_aggregate_eid_score_func=np.mean,
             combine_posterior_prior_y_func=functools.partial(np.mean, axis=1),
             operate_on_subgraphs_separately=args.get("parse_subgraphs_separately"),
         )
-        posterior_update_func = sci_server.update_posterior
+        posterior_update_func = sciserver.update_posterior
     elif runtime == "elsevier":
         get_data_func = elsevier.get_data
         posterior_update_func = elsevier.update_posterior
