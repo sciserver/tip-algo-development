@@ -58,12 +58,11 @@ class LogTime:
         self.task_str = task_str
 
     def __enter__(self):
-        self.logger.info(f"Starting {self.task_str}")
         self.start = time.time()
 
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is None:
-            self.logger.info(f"Completed in {time.time() - self.start} seconds")
+            self.logger.info(f"Completed {self.task_str} in {time.time() - self.start} seconds")
         else:
             self.logger.fatal(f"{exc_type}\n{exc_value}\n{traceback}")
 

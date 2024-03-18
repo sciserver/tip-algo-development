@@ -66,12 +66,37 @@ def test_default_combine_posterior_prior_y_func_fails_for_wrong_shape():
 
     arrs = [
         np.array([0.1, 0.2, 0.3, 0.4]),
+        np.array([[0.3, 0.5, 0.6, 0.7, 0.8]]),
+        np.array([0.8, 0.8, 0.9, 1.0]),
+    ]
+
+    with pytest.raises(ValueError):
+        ss.default_combine_posterior_prior_y_func(arrs)
+
+
+def test_default_combine_posterior_prior_y_func_fails_for_wrong_length():
+    """Test the default combine_posterior_prior_y function with column vectors."""
+
+    arrs = [
+        np.array([0.1, 0.2, 0.3, 0.4]),
         np.array([0.3, 0.5, 0.6, 0.7, 0.8]),
         np.array([0.8, 0.8, 0.9, 1.0]),
     ]
 
     with pytest.raises(ValueError):
         ss.default_combine_posterior_prior_y_func(arrs)
+
+
+def test_default_weights_func():
+    """Test the default weights function."""
+
+    x = [1] * 5
+    y = [1] * 5
+
+    expected = [1.0] * len(x)
+    actual = ss.default_weights_func(x, y)
+
+    assert np.allclose(expected, actual)
 
 
 def test_extract_disconnected_auids():
@@ -141,4 +166,3 @@ def test_build_adjacency_matrix():
 
     assert np.allclose(result_A.todense(), expected_result)
     assert np.allclose(result_auids, auid_eids.index)
-

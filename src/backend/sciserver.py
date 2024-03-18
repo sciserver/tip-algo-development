@@ -53,7 +53,27 @@ def default_combine_posterior_prior_y_func(arrs: List[np.ndarray]) -> np.ndarray
     if any(arr.ndim > 1 for arr in arrs):
         raise ValueError("All arrays must be 1D.")
 
+    length = arrs[0].shape[0]
+    if not all(arr.shape[0]==length for arr in arrs):
+        raise ValueError("All arrays must be same length.")
+
     return np.mean(np.stack(arrs, axis=1), axis=1)
+
+
+def default_weights_func(x:List[int], _:List[int]) -> List[float]:
+    """Default function for calculating the weights for the edges between the auids.
+
+    The default function is to return a list of ones.
+
+    Args:
+        x (List[int]): The source auids.
+        y (List[int]): The target auids.
+
+    Returns:
+        List[float]: A list of ones.
+    """
+
+    return np.ones(len(x)).tolist()
 
 
 def extract_disconnected_auids(
@@ -105,9 +125,7 @@ def build_adjacency_matrix(
     auid_eids: pd.Series,
     eid_auids: pd.Series,
     auids: List[int],
-    weights_f: Callable[[List[int], List[int]], List[float]] = lambda x, y: np.ones(
-        len(x)
-    ).tolist(),
+    weights_f: Callable[[List[int], List[int]], List[float]] = default_weights_func,
     dtype: np.dtype = bool,
 ) -> Tuple[np.ndarray, sparse.csr_matrix]:
     """Builds an adjacency matrix from the given auids and eids.
@@ -205,11 +223,8 @@ def calculate_prior_y(
         # posterior_y. If that is the case, we need to limit the calculation
         # to the auids that are in both.
         if len(posterior_y_t_minus_1) > 0:
-            print(posterior_y_t_minus_1.shape, prior_y.shape)
-            print(posterior_y_t_minus_1)
             posterior_matched = posterior_y_t_minus_1.index.intersection(prior_y.index)
             posterior_y_t_minus_1 = posterior_y_t_minus_1[posterior_matched]
-            print(prior_y)
             prior_y = combine_posterior_prior_y_func(
                 np.stack([prior_y, posterior_y_t_minus_1], axis=1),
             )
@@ -231,10 +246,13 @@ def get_data(
 
     auid_eids = pd.read_parquet(f"./data/auid_eid_{year}.parquet")
     eids = pd.read_parquet(f"./data/eids_{year}.parquet")
+    numberic_types = numeric_types if numeric_types else eids["score"].dtype
+
     eid_scores = pd.Series(
-        data=eids["score"].values,
+        data=eids["score"].values.astype(numberic_types),
         index=eids["eid"].values,
     )
+
     del eids
 
     with log_time.LogTime(f"Grouping eid-auid by eid for {year}", logger):
@@ -263,7 +281,7 @@ def get_data(
             combine_posterior_prior_y_func,
         )
 
-        yield A, auids, prior_y
+        yield A, auids, prior_y.astype(numeric_types)
     else:
         with log_time.LogTime(f"Building adjacency matrix", logger):
             # calculating the adjacency matrix for the entire graph can take a long
@@ -286,7 +304,7 @@ def get_data(
                 combine_posterior_prior_y_func,
             )
 
-        return iter([(A, auids, prior_y)])
+        yield (A, auids, prior_y.astype(numeric_types))
 
 
 def update_posterior(

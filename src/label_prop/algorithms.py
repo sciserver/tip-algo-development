@@ -372,7 +372,6 @@ class CAMLP(Base):
         d = np.asarray(self.graph.sum(axis=1))
         if len(d.shape) == 2:
             d = d.flatten()
-        print(self.graph.shape, d.shape)
         return sparse.diags(1.0 / (1.0 + d * self.beta), offsets=0)
 
     def _build_propagation_matrix(self):
@@ -426,7 +425,6 @@ class CAMLP(Base):
         An array of length y that has the propogated labels
         """
         self.graph = A
-        # self.x_ = x
         self.y_ = np.arange(2)
 
         self._arrange_params()
