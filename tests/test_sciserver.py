@@ -22,6 +22,8 @@
 
 """Testing for the SciServer backend."""
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -103,8 +105,8 @@ def test_extract_disconnected_auids():
     """Tests the extract_disconnected_auids function."""
 
     auid_eids = pd.Series(
-        index = [1, 2, 3, 4],
-        data = [
+        index=[1, 2, 3, 4],
+        data=[
             [10, 20],
             [20],
             [10],
@@ -112,18 +114,15 @@ def test_extract_disconnected_auids():
         ],
     )
     eid_auids = pd.Series(
-        index = [10, 20, 30],
-        data = [
+        index=[10, 20, 30],
+        data=[
             [1, 3],
             [1, 2],
             [4],
         ],
     )
 
-    expected_result = [
-        set([1, 2, 3]),
-        set([4])
-    ]
+    expected_result = [set([1, 2, 3]), set([4])]
 
     result = list(map(set, ss.extract_disconnected_auids(auid_eids, eid_auids)))
 
@@ -134,8 +133,8 @@ def test_build_adjacency_matrix():
     """Tests the build_adjacency_matrix function."""
 
     auid_eids = pd.Series(
-        index = [1, 2, 3, 4],
-        data = [
+        index=[1, 2, 3, 4],
+        data=[
             [10, 20],
             [20],
             [10],
@@ -143,20 +142,22 @@ def test_build_adjacency_matrix():
         ],
     )
     eid_auids = pd.Series(
-        index = [10, 20, 30],
-        data = [
+        index=[10, 20, 30],
+        data=[
             [1, 3],
             [1, 2],
             [4],
         ],
     )
 
-    expected_result = np.array([
-        [0, 1, 1, 0],
-        [1, 0, 0, 0],
-        [1, 0, 0, 0],
-        [0, 0, 0, 0],
-    ])
+    expected_result = np.array(
+        [
+            [0, 1, 1, 0],
+            [1, 0, 0, 0],
+            [1, 0, 0, 0],
+            [0, 0, 0, 0],
+        ]
+    )
 
     result_auids, result_A = ss.build_adjacency_matrix(
         auid_eids,
@@ -166,3 +167,136 @@ def test_build_adjacency_matrix():
 
     assert np.allclose(result_A.todense(), expected_result)
     assert np.allclose(result_auids, auid_eids.index)
+
+
+def test_calculate_prior_y_from_eids():
+    """Tests the calculate_prior_y_from_eids function."""
+
+    auid_eids = pd.Series(
+        index=[1, 2, 3, 4],
+        data=[
+            [10, 20],
+            [20],
+            [10],
+            [30, 20, 10],
+        ],
+    )
+
+    eid_score = pd.Series(
+        index=[10, 20, 30],
+        data=[0.5, 0.30, 0.40],
+    )
+
+    expected = np.array([0.40, 0.30, 0.5, 0.40])
+
+    actual = ss.calculate_prior_y_from_eids(
+        auid_eids.index,
+        auid_eids,
+        eid_score,
+    )
+
+    assert np.allclose(actual, expected)
+
+
+def test_get_previous_posterior_exists():
+    """Tests the get_previous_posterior function."""
+
+    year = 2020
+
+    # this requires some i/o to test
+    os.makedirs("./tmp", exist_ok=True)
+    ss.POSTIEOR_DATA_PATH = "./tmp/posterior_{year}.parquet"
+
+    # create a dummy file
+    df = pd.Series(
+        index = [1, 2, 3, 4],
+        data = [0.1, 0.2, 0.3, 0.4],
+    ).to_frame("score").to_parquet(ss.POSTIEOR_DATA_PATH.format(year=2020))
+
+    test_auids = [1, 2, 5]
+
+    expected = np.array([0.1, 0.2, np.nan])
+
+    actual = ss.get_previous_posterior(test_auids, year)
+
+    np.allclose(actual, expected, equal_nan=True)
+
+    os.remove(ss.POSTIEOR_DATA_PATH.format(year=2020))
+    os.rmdir("./tmp")
+
+
+def test_get_previous_posterior_doesnt_exist():
+    """Tests the get_previous_posterior function."""
+
+    year = 2020
+
+    # this requires some i/o to test
+    os.makedirs("./tmp", exist_ok=True)
+    ss.POSTIEOR_DATA_PATH = "./tmp/posterior_{year}.parquet"
+
+    test_auids = [1, 2, 5]
+
+    actual = ss.get_previous_posterior(test_auids, year)
+
+    os.rmdir("./tmp")
+
+    assert actual is None
+
+def test_update_posterior_nothing_exists():
+    """Tests the update_posterior function."""
+
+    auids = [1, 2, 3, 4]
+    posterior_y = np.array([0.1, 0.2, 0.3, 0.4])
+    year = 2020
+
+    os.makedirs("./tmp", exist_ok=True)
+    ss.POSTIEOR_DATA_PATH = "./tmp/posterior_{year}.parquet"
+
+    ss.update_posterior(auids, posterior_y, year)
+
+    df = pd.read_parquet(ss.POSTIEOR_DATA_PATH.format(year=2020))
+
+    expected = pd.Series(
+        index = [1, 2, 3, 4],
+        data = [0.1, 0.2, 0.3, 0.4],
+        name = "score",
+    )
+
+    os.remove(ss.POSTIEOR_DATA_PATH.format(year=2020))
+    os.rmdir("./tmp")
+
+    assert df.equals(expected.to_frame("score"))
+
+
+def test_update_posterior_something_exists():
+    """Tests the update_posterior function."""
+    ss.POSTIEOR_DATA_PATH = "./tmp/posterior_{year}.parquet"
+    os.makedirs("./tmp", exist_ok=True)
+    year = 2020
+
+    pd.Series(
+        index = [1, 2, 3],
+        data = [0.9, 0.8, 0.7],
+    ).to_frame("score").to_parquet(ss.POSTIEOR_DATA_PATH.format(year=year))
+
+    auids = [4, 5, 6]
+    posterior_y = np.array([0.6, 0.5, 0.4])
+
+    ss.update_posterior(auids, posterior_y, year)
+
+    df = pd.read_parquet(ss.POSTIEOR_DATA_PATH.format(year=2020))
+
+    expected = pd.Series(
+        index = [1, 2, 3, 4, 5, 6],
+        data = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4],
+        name = "score",
+    )
+
+    os.remove(ss.POSTIEOR_DATA_PATH.format(year=year))
+    os.rmdir("./tmp")
+
+    assert df.equals(expected.to_frame("score"))
+
+def test_get_data():
+    """Tests the get_data function."""
+    assert False, "Not implemented"

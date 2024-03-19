@@ -73,6 +73,7 @@ def run_algo_year(
     for i, (algo, (A, auids, prior_y)) in enumerate(
         zip(algo_instances, get_data_func(year, logger)), start=1
     ):
+        print(i, A.shape, auids.shape, prior_y.shape)
         with log_time.LogTime(f"Fitting data for {year}, ajd matrix {i}", logger):
             posterior_y = algo.fit_predict_graph(A, prior_y)
         with log_time.LogTime(f"Updating posterior for {year}", logger):
