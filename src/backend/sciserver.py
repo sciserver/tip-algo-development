@@ -32,20 +32,24 @@ from typing import Callable, Iterable, Iterator, List, Tuple, Union
 import numpy as np
 import pandas as pd
 import scipy.sparse as sparse
+
 try:
     from pandarallel import pandarallel
-    pandarallel.initialize(progress_bar=True)
-    parallel_apply = True
-except ImportError:
-    warnings.warn("pandarallel not installed, parallel processing will not be available.")
-    parallel_apply = False
 
+    pandarallel.initialize(progress_bar=True)
+    PARALLEL_APPLY = True
+except ImportError:
+    warnings.warn(
+        "pandarallel not installed, parallel processing will not be available."
+    )
+    PARALLEL_APPLY = False
 
 import src.utils.log_time as log_time
 
 MIN_ARR_SIZE_FOR_CACHE = 10_000
 
 POSTIEOR_DATA_PATH = "./data/posterior_y_{year}.parquet"
+
 
 def default_combine_posterior_prior_y_func(arrs: List[np.ndarray]) -> np.ndarray:
     """Default function for combining the posterior for years t-1..t-n and the prior for year t.
@@ -195,21 +199,21 @@ def build_adjacency_matrix(
 
 def calculate_prior_y_from_eids(
     auids: np.ndarray,
-    auid_eids: pd.Series, # auid:int -> eids:List[int]
-    eid_score: pd.Series, # eid:int -> score:float
+    auid_eids: pd.Series,  # auid:int -> eids:List[int]
+    eid_score: pd.Series,  # eid:int -> score:float
     agg_score_func: Callable[[np.ndarray], float] = np.mean,
 ) -> np.ndarray:
 
     selected_eids = auid_eids[auids]
 
-    if len(selected_eids) > MIN_ARR_SIZE_FOR_CACHE and parallel_apply:
+    if len(selected_eids) > MIN_ARR_SIZE_FOR_CACHE or PARALLEL_APPLY:
         y = selected_eids.parallel_apply(
             lambda eids: agg_score_func(eid_score[eids])
         ).astype(eid_score.dtype)
     else:
-        y = selected_eids.apply(
-            lambda eids: agg_score_func(eid_score[eids])
-        ).astype(eid_score.dtype)
+        y = selected_eids.apply(lambda eids: agg_score_func(eid_score[eids])).astype(
+            eid_score.dtype
+        )
 
     return y
 
@@ -247,68 +251,43 @@ def get_previous_posterior(
     return post_s.reindex(auids).values
 
 
-# def calculate_prior_y(
-#     auids: np.ndarray,
-#     auid_eids: pd.Series,
-#     eid_score: pd.Series,
-#     year: int,
-#     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
-#     combine_posterior_prior_y_func: Callable[
-#         [List[np.ndarray]], np.ndarray
-#     ] = default_combine_posterior_prior_y_func,
-#     posterior_y_missing_value: float = 0.5,
-# ) -> np.ndarray:
-
-#     # get all of eids for each auid
-#     selected_eids = auid_eids[auids]
-
-#     prior_y = selected_eids.apply(
-#         lambda eids: prior_y_aggregate_eid_score_func(eid_score[eids])
-#     )
-
-#     # TODO: support an arbitrary number of years
-#     posterior_y_path = f"./data/posterior_y_{year}.parquet"
-#     if os.path.exists(posterior_y_path):
-#         posterior_y_dframe = pd.read_parquet(posterior_y_path)
-
-#         known_auids = posterior_y_dframe.index.values
-#         new_auids = set(auids) - set(known_auids)
-#         posterior_y_t_minus_1 = pd.Series(
-#             data=posterior_y_dframe["score"].values,
-#             index=known_auids,
-#         )
-#         del posterior_y_dframe
-
-#         # if there are new ids tat we haven't seen before, we need to add them
-#         # with the default value.
-#         if new_auids:
-#             for auid in new_auids:
-#                 posterior_y_t_minus_1[auid] = posterior_y_missing_value
-#             posterior_y_t_minus_1.sort_index(inplace=True)
-
-#         # There is a chance that there are less auids in the prior_y than in the
-#         # posterior_y. If that is the case, we need to limit the calculation
-#         # to the auids that are in both.
-#         if len(posterior_y_t_minus_1) > 0:
-#             posterior_matched = posterior_y_t_minus_1.index.intersection(prior_y.index)
-#             posterior_y_t_minus_1 = posterior_y_t_minus_1[posterior_matched]
-#             prior_y = combine_posterior_prior_y_func(
-#                 np.stack([prior_y, posterior_y_t_minus_1], axis=1),
-#             )
-
-#     return prior_y
-
-
 def get_data(
     year: int,
     logger: logging.Logger = None,
     prior_y_aggregate_eid_score_func: Callable[[np.ndarray], float] = np.mean,
     n_years_lookback: int = 1,
-    combine_posterior_prior_y_func: Callable[[List[np.ndarray]], np.ndarray] = default_combine_posterior_prior_y_func,
+    combine_posterior_prior_y_func: Callable[
+        [List[np.ndarray]], np.ndarray
+    ] = default_combine_posterior_prior_y_func,
     adj_mat_dtype: np.dtype = bool,
     numeric_types: np.dtype = np.float32,
     operate_on_subgraphs_separately: bool = False,
 ) -> Iterable[Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]]:
+    """The get_data function for the SciServer backend.
+
+    Args:
+        year (int): The year to get the data for.
+        logger (logging.Logger): The logger to use. Defaults to None.
+        prior_y_aggregate_eid_score_func (Callable[[np.ndarray], float]): A function
+            that takes an array of scores and returns a single score. Defaults to
+            np.mean.
+        n_years_lookback (int): The number of years to look back when getting the
+            previous posterior. Defaults to 1.
+        combine_posterior_prior_y_func (Callable[[List[np.ndarray]], np.ndarray]): A
+            function that takes a list of arrays and returns a single array. Defaults
+            to default_combine_posterior_prior_y_func.
+        adj_mat_dtype (np.dtype): The data type of the adjacency matrix. Defaults to
+            bool.
+        numeric_types (np.dtype): The data type of the numeric values. Defaults to
+            np.float32.
+        operate_on_subgraphs_separately (bool): Whether to operate on subgraphs
+            separately. Defaults to False.
+
+    Yields:
+        Iterable[Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]]: An iterable with
+            the adjacency matrix, the auids and the prior_y for the given year.
+
+    """
 
     os.makedirs("./data/cache", exist_ok=True)
 
@@ -346,22 +325,34 @@ def get_data(
     for i, auids in enumerate(auids_iter):
 
         if len(auids) > MIN_ARR_SIZE_FOR_CACHE:
-            #TODO: This section might be too hard to read
+            # TODO: This section might be too hard to read
             logger.info(f"n auids: {len(auids)}, looking for cached adjacency matrix")
-            if os.path.exists(f"./data/cache/{'iter_'*operate_on_subgraphs_separately}adjacency_matrix_{year}_{i}.npz"):
+            if os.path.exists(
+                f"./data/cache/{'iter_'*operate_on_subgraphs_separately}adjacency_matrix_{year}_{i}.npz"
+            ):
                 logger.info("Found cached adjacency matrix, loading...")
                 with log_time.LogTime(f"Loading adjacency matrix {i}", logger):
-                    A = sparse.load_npz(f"./data/cache/{'iter_'*operate_on_subgraphs_separately}adjacency_matrix_{year}_{i}.npz")
-                    auids = np.load(f"./data/cache/{'iter_'*operate_on_subgraphs_separately}auids_{year}_{i}.npy")
+                    A = sparse.load_npz(
+                        f"./data/cache/{'iter_'*operate_on_subgraphs_separately}adjacency_matrix_{year}_{i}.npz"
+                    )
+                    auids = np.load(
+                        f"./data/cache/{'iter_'*operate_on_subgraphs_separately}auids_{year}_{i}.npy"
+                    )
             else:
                 logger.info("No cached adjacency matrix found, building...")
                 with log_time.LogTime(f"Building adjacency matrix {i}", logger):
                     auids, A = adj_mat_func(auids)
                 with log_time.LogTime(f"Caching adjacency matrix {i}", logger):
                     logger.info(f"Saving adjacency matrix to cache")
-                    sparse.save_npz(f"./data/cache/{'iter_'*operate_on_subgraphs_separately}adjacency_matrix_{year}_{i}.npz", A)
+                    sparse.save_npz(
+                        f"./data/cache/{'iter_'*operate_on_subgraphs_separately}adjacency_matrix_{year}_{i}.npz",
+                        A,
+                    )
                     logger.info(f"Saving auids to cache")
-                    np.save(f"./data/cache/{'iter_'*operate_on_subgraphs_separately}auids_{year}_{i}.npy", auids)
+                    np.save(
+                        f"./data/cache/{'iter_'*operate_on_subgraphs_separately}auids_{year}_{i}.npy",
+                        auids,
+                    )
         else:
             with log_time.LogTime(f"Building adjacency matrix {i}", logger):
                 auids, A = adj_mat_func(auids)
@@ -374,18 +365,25 @@ def get_data(
                 prior_y_aggregate_eid_score_func,
             )
 
-        with log_time.LogTime(f"Retrieving posteriors for previous {n_years_lookback} years", logger):
-            previous_posteriors = list(filter(
-                lambda x: x is not None,
-                map(
-                    lambda year: get_previous_posterior(auids, year),
-                    range(year - 1, year - n_years_lookback - 1, -1)
-                ),
-            ))
+        with log_time.LogTime(
+            f"Retrieving posteriors for previous {n_years_lookback} years", logger
+        ):
+            previous_posteriors = list(
+                filter(
+                    lambda x: x is not None,
+                    map(
+                        lambda year: get_previous_posterior(auids, year),
+                        range(year - 1, year - n_years_lookback - 1, -1),
+                    ),
+                )
+            )
 
-        with log_time.LogTime(f"Combining posteriors for previous {n_years_lookback} years", logger):
-            prior_y = combine_posterior_prior_y_func([prior_y_eids] + previous_posteriors)
-
+        with log_time.LogTime(
+            f"Combining posteriors for previous {n_years_lookback} years", logger
+        ):
+            prior_y = combine_posterior_prior_y_func(
+                [prior_y_eids] + previous_posteriors
+            )
 
         yield A, auids, prior_y.astype(numeric_types)
 

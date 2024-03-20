@@ -41,9 +41,9 @@ python -m src.run_algo --help
 
 ### Implementing a runtime
 
-The algorithm works generall in three phases:
+The algorithm works generally in three phases:
 
-1. Get the prior data for that year and any number of prior years.
+1. Get the prior data for that year.
 2. Run the label propagation algorithm
 3. Update the posterior data for that year
 
@@ -57,13 +57,17 @@ MaybeSparseMatrix = Union[np.ndarray, sp.spmatrix]
 get_data(
     year: int,
     logger: logging.Logger
-) -> Tuple[MaybeSparseMatrix, np.ndarray, np.ndarray]:
+) -> Iterable[Tuple[MaybeSparseMatrix, np.ndarray, np.ndarray]]:
 ```
 
 This function accepts a year and a logger and returns a tuple of the following:
 - The adjacency matrix
 - The auids
 - The prior for the auids
+wrapped by an iterable. This is because the graph may be disconnected and
+you may want to parse it in pieces. However, you could parse the entire
+graph at and then the iterable would only contain one element.
+
 
 The second function you need to implement is
 

@@ -27,9 +27,13 @@ import numpy as np
 import scipy.sparse as sparse
 
 
-def get_data(year: int, logger: logging.Logger) -> Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]:
+def get_data(
+    year: int, logger: logging.Logger
+) -> Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]:
     raise NotImplementedError("Not implemented in the Elsevier backend.")
 
 
-def update_posterior(auids: np.ndarray, posterior: np.ndarray, year: int) -> None:
+def update_posterior(
+    auids: np.ndarray, posterior: np.ndarray, year: int, logger: logging.Logger
+) -> None:
     raise NotImplementedError("Not implemented in the Elsevier backend.")
