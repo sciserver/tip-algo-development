@@ -20,13 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import logging
 from typing import Tuple
 
 import numpy as np
 import scipy.sparse as sparse
 
 
-def get_data(year: int) -> Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]:
+def get_data(year: int, logger: logging.Logger) -> Tuple[sparse.csr_matrix, np.ndarray, np.ndarray]:
     raise NotImplementedError("Not implemented in the Elsevier backend.")
 
 

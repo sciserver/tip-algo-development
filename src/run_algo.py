@@ -73,11 +73,10 @@ def run_algo_year(
     for i, (algo, (A, auids, prior_y)) in enumerate(
         zip(algo_instances, get_data_func(year, logger)), start=1
     ):
-        print(i, A.shape, auids.shape, prior_y.shape)
         with log_time.LogTime(f"Fitting data for {year}, ajd matrix {i}", logger):
             posterior_y = algo.fit_predict_graph(A, prior_y)
         with log_time.LogTime(f"Updating posterior for {year}", logger):
-            posterior_update_func(auids, posterior_y, year)
+            posterior_update_func(auids, posterior_y, year, logger)
 
 
 def main(args: Dict[str, Any]):
@@ -98,7 +97,7 @@ def main(args: Dict[str, Any]):
         get_data_func = functools.partial(
             sciserver.get_data,
             prior_y_aggregate_eid_score_func=np.mean,
-            combine_posterior_prior_y_func=functools.partial(np.mean, axis=1),
+            combine_posterior_prior_y_func=sciserver.default_combine_posterior_prior_y_func,
             operate_on_subgraphs_separately=args.get("parse_subgraphs_separately"),
         )
         posterior_update_func = sciserver.update_posterior

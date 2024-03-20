@@ -22,6 +22,7 @@
 
 """Testing for the SciServer backend."""
 
+import logging
 import os
 
 import numpy as np
@@ -252,7 +253,7 @@ def test_update_posterior_nothing_exists():
     os.makedirs("./tmp", exist_ok=True)
     ss.POSTIEOR_DATA_PATH = "./tmp/posterior_{year}.parquet"
 
-    ss.update_posterior(auids, posterior_y, year)
+    ss.update_posterior(auids, posterior_y, year, logging.getLogger("test"))
 
     df = pd.read_parquet(ss.POSTIEOR_DATA_PATH.format(year=2020))
 
@@ -282,7 +283,7 @@ def test_update_posterior_something_exists():
     auids = [4, 5, 6]
     posterior_y = np.array([0.6, 0.5, 0.4])
 
-    ss.update_posterior(auids, posterior_y, year)
+    ss.update_posterior(auids, posterior_y, year, logging.getLogger("test"))
 
     df = pd.read_parquet(ss.POSTIEOR_DATA_PATH.format(year=2020))
 

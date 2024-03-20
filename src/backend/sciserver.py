@@ -26,11 +26,20 @@ import functools
 import itertools
 import logging
 import os
+import warnings
 from typing import Callable, Iterable, Iterator, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import scipy.sparse as sparse
+try:
+    from pandarallel import pandarallel
+    pandarallel.initialize(progress_bar=True)
+    parallel_apply = True
+except ImportError:
+    warnings.warn("pandarallel not installed, parallel processing will not be available.")
+    parallel_apply = False
+
 
 import src.utils.log_time as log_time
 
@@ -59,11 +68,7 @@ def default_combine_posterior_prior_y_func(arrs: List[np.ndarray]) -> np.ndarray
     if not all(arr.shape[0] == length for arr in arrs):
         raise ValueError("All arrays must be same length.")
 
-    print("arr shapes:", [arr.shape for arr in arrs])
-
     outs = np.nanmean(np.stack(arrs, axis=1), axis=1)
-
-    print("out shape:", outs.shape)
 
     return np.nanmean(np.stack(arrs, axis=1), axis=1)
 
@@ -197,9 +202,14 @@ def calculate_prior_y_from_eids(
 
     selected_eids = auid_eids[auids]
 
-    y = selected_eids.apply(
-        lambda eids: agg_score_func(eid_score[eids])
-    ).astype(eid_score.dtype)
+    if len(selected_eids) > MIN_ARR_SIZE_FOR_CACHE and parallel_apply:
+        y = selected_eids.parallel_apply(
+            lambda eids: agg_score_func(eid_score[eids])
+        ).astype(eid_score.dtype)
+    else:
+        y = selected_eids.apply(
+            lambda eids: agg_score_func(eid_score[eids])
+        ).astype(eid_score.dtype)
 
     return y
 
@@ -384,6 +394,7 @@ def update_posterior(
     auids: np.ndarray,
     posterior_y_values: np.ndarray,
     year: int,
+    logger: logging.Logger,
 ) -> None:
 
     posterior_path = POSTIEOR_DATA_PATH.format(year=year)
