@@ -438,10 +438,111 @@ class CAMLP(Base):
         while remaining_iter > 0:
             F_new = self._propagate()
 
-            if self.check_tol and np.allclose(self.F_, F_new):
+            if self.check_tol and np.allclose(self.F_, F_new, rtol=self.rtol, atol=self.atol):
                 break
 
             self.F_ = F_new
             remaining_iter -= 1
 
         return self.F_[:, 1]
+
+
+
+
+
+
+class SocNL:
+    """Socartes Network Labeling (SocNL).
+
+    Originally published by Yuto Yamaguchi, MIT License.
+
+    source code: https://github.com/yamaguchiyuto/socnl
+
+    Updated by Ryan Hausen, The Johns Hopkins University, Institute for Data Intensive Engineering and Science
+    License: MIT
+    """
+
+    def __init__(
+        self,
+        graph: Union[np.ndarray, sparse.spmatrix] = None,
+        max_iter:int = 30,
+        prior_lambda: float = 1.0,
+        check_tol: bool = True,
+        rtol: float = 1.e-5,
+        atol: float = 1.e-8,
+    ):
+        self.max_iter = max_iter
+        self.graph = graph
+        self.prior_lambda = prior_lambda
+        self.check_tol = check_tol
+        self.rtol = rtol
+        self.atol = atol
+
+    def fit(self, x, y) -> "SocNL":
+        raise NotImplementedError(
+            "Run `fit_predict_graph`, we don't care about maintaining self"
+        )
+
+    def fit_predict_graph(
+        self,
+        A: Union[np.ndarray, sparse.spmatrix],
+        prior_f: np.ndarray,
+    ) -> np.ndarray:
+        """Fit a graph-based semi-supervised learning model.
+
+        Source orginally released by Yuto Yamaguchi, MIT License.
+        Source code: https://github.com/yamaguchiyuto/socnl/blob/master/socnl.py
+
+        Updated by Ryan Hausen, The Johns Hopkins University, Institute for Data Intensive Engineering and Science
+        License: MIT
+
+        This function is designed specifically for the two class case
+        and for the TIP project, assumptions made here are not
+        generic.
+
+        IMPORTANT: this function only updates the portion of nodes that are
+        not labeled. The labeled nodes are not updated. So it is important
+        that the labeled nodes are the first nodes in the adjacency matrix.
+
+        Parameters
+        ----------
+        A : adjacency matrix
+        prior_f : A array of shape [n+1, n_classes] where the first n values of
+                  the array are are the labeled nodes values. The n+1st value
+                  of the array is the prior.
+
+        Returns
+        -------
+        An array of length A.shape[0] that has the propogated labels
+        """
+        # the SocNL algorithm works differently than the CAMLP algorithm in
+        # that labeled nodes are not updated. So we need to split the labeled
+        # and unlabeled nodes. and calculate values only for non labeled nodes.
+        y = prior_f[:-1, :]
+        a = prior_f[-1, :]
+
+        y = prior_f[prior_f[:, -1]==1, :]
+
+
+        labeled_nodes = y.shape[0]
+        Au = A[labeled_nodes:,:]
+        if a.sum() == 0:
+            Du = sparse.diags(np.array(1.0/Au.sum(1).T)[0],0) # (Du + (a-1)I)^{-1}
+            r = 0
+        else:
+            Du = sparse.diags(np.array(1.0/(Au.sum(1)+a.sum()).T)[0],0) # Du^{-1}
+            r = Du.dot(np.outer(np.ones(A.shape[0]-labeled_nodes),a)) # Du^{-1}*1a^T
+        f = np.zeros((Au.shape[0],y.shape[1])) / y.shape[1]
+        Pu = Du.dot(Au) # (Du + (a-1)I)^{-1} * Au
+        Puu = Pu[:,labeled_nodes:]
+        Pul = Pu[:,:labeled_nodes]
+
+        for _ in range(self.max_iter):
+            f_new = Puu.dot(f) + Pul.dot(y) + r
+
+            if self.check_tol and np.allclose(f, f_new, rtol=self.rtol, atol=self.atol):
+                return np.concat([y, f_new], axis=0)
+
+            f = f_new
+
+        return np.concat([y, f], axis=0)
