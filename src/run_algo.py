@@ -39,7 +39,7 @@ MaybeSparseMatrix = Union[np.ndarray, sp.spmatrix]
 
 
 def run_algo_year(
-    algo_instances: Iterable[algos.Base],
+    algorithm: algos.TipGraphAlgorithm,
     year: int,
     get_data_func: Callable[
         [int, logging.Logger], Tuple[MaybeSparseMatrix, np.ndarray, np.ndarray]
@@ -48,7 +48,6 @@ def run_algo_year(
     log_dir: str,
 ) -> np.ndarray:
     """Run the given algorithm instances for the given year.
-
 
     Args:
         algo_instances (Iterable[algos.Base]): An iterable with the algorithm
@@ -60,7 +59,6 @@ def run_algo_year(
 
     Returns:
         np.ndarray: The posterior for the given year.
-
     """
 
     if log_dir:
@@ -71,7 +69,11 @@ def run_algo_year(
         logger = log_time.PrintLogger(f"run_algo_year_{year}")
 
     for i, (algo, (A, auids, prior_y)) in enumerate(
-        zip(algo_instances, get_data_func(year, logger)), start=1
+        zip(
+            itertools.repeat(algorithm),
+            get_data_func(year, logger),
+        ),
+        start=1,
     ):
         with log_time.LogTime(f"Fitting data for {year}, ajd matrix {i}", logger):
             posterior_y = algo.fit_predict_graph(A, prior_y)
@@ -82,25 +84,40 @@ def run_algo_year(
 def main(args: Dict[str, Any]):
     """Run the algorithm for the given arguments."""
 
-    os.makedirs(args.get("log_dir"), exist_ok=True)
-
     runtime = args.get("runtime")
+    input_algo = args.get("algo")
 
-    algo = algos.CAMLP(
-        beta=args.get("beta"),
-        max_iter=args.get("max_iter"),
-        rtol=args.get("rtol"),
-        atol=args.get("atol"),
-    )
+    log_dir = os.path.join(args.get("log_dir"), input_algo)
+    os.makedirs(log_dir, exist_ok=True)
+
+    if input_algo == "camlp":
+        algo = algos.CAMLP(
+            beta=args.get("beta"),
+            max_iter=args.get("max_iter"),
+            rtol=args.get("rtol"),
+            atol=args.get("atol"),
+        )
+    elif input_algo == "socnl":
+        algo = algos.SocNL(
+            beta=args.get("prior_lambda", 1.0),
+            max_iter=args.get("max_iter"),
+            rtol=args.get("rtol"),
+            atol=args.get("atol"),
+        )
+    else:
+        raise ValueError(f"Algorithm {args.get('algo')} not supported")
 
     if runtime == "sciserver":
-        get_data_func = functools.partial(
-            sciserver.get_data,
-            prior_y_aggregate_eid_score_func=np.mean,
-            combine_posterior_prior_y_func=sciserver.default_combine_posterior_prior_y_func,
-            operate_on_subgraphs_separately=args.get("parse_subgraphs_separately"),
+        get_data_func = sciserver.select_get_data_func(
+            algo,
+            adj_mat_dtype=bool,
+            numeric_types=np.float32,
+            get_data_kwargs=dict(
+                prior=args.get("prior"),
+            ),
         )
-        posterior_update_func = sciserver.update_posterior
+
+        posterior_update_func = sciserver.select_update_posterior_func(algo)
     elif runtime == "elsevier":
         get_data_func = elsevier.get_data
         posterior_update_func = elsevier.update_posterior
@@ -109,11 +126,11 @@ def main(args: Dict[str, Any]):
 
     for year in args.get("years"):
         run_algo_year(
-            itertools.repeat(algo),
+            algo,
             year,
             get_data_func=get_data_func,
             posterior_update_func=posterior_update_func,
-            log_dir=args.get("log_dir"),
+            log_dir=log_dir,
         )
 
 
@@ -121,10 +138,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--runtime", type=str, default="sciserver")
-    parser.add_argument("--beta", type=float, default=0.1)
+    parser.add_argument(
+        "--algo",
+        type=str,
+        choices=["socnl", "camlp"],
+        default="camlp",
+        help="The algorithm to run.",
+    )
     parser.add_argument("--max_iter", type=int, default=30)
     parser.add_argument("--rtol", type=float, default=1e-6)
     parser.add_argument("--atol", type=float, default=1e-6)
+    parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument(
         "--years",
         type=int,
@@ -134,11 +158,26 @@ if __name__ == "__main__":
             2011,
         ],
     )
-    parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument(
         "--parse_subgraphs_separately",
         action=argparse.BooleanOptionalAction,
         default=False,
+    )
+
+    # CAMLP specific arguments
+    parser.add_argument(
+        "--beta", type=float, default=0.1, help="The beta parameter for CAMLP."
+    )
+
+    # SocNL specific arguments
+    parser.add_argument(
+        "--prior_lambda",
+        type=float,
+        default=1.0,
+        help="The prior lambda parameter for SocNL.",
+    )
+    parser.add_argument(
+        "--prior", type=str, default="0.5,0.5", help="The prior to use for SocNL."
     )
 
     main(args=vars(parser.parse_args()))

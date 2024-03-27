@@ -24,6 +24,17 @@ from scipy import sparse
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 
+class TipGraphAlgorithm:
+    NAME = "SHOULD EXISTS IN SUBCLASS"
+
+    def fit_predict_graph(
+        self,
+        A: Union[np.ndarray, sparse.spmatrix],
+        prior_f: np.ndarray,
+    ) -> np.ndarray:
+        raise NotImplementedError("This function must be implemented by the subclass")
+
+
 class Base(BaseEstimator, ClassifierMixin):
     __metaclass__ = ABCMeta
 
@@ -308,7 +319,7 @@ class OMNI(Base):
         return B
 
 
-class CAMLP(Base):
+class CAMLP(Base, TipGraphAlgorithm):
     """Confidence-Aware Modulated Label Propagation (CAMLP) for GBSSL
 
     Parameters
@@ -333,6 +344,8 @@ class CAMLP(Base):
     In SIAM International Conference on Data Mining.
     """
 
+    NAME = "camlp"
+
     def __init__(
         self,
         graph: Union[np.ndarray, sparse.spmatrix] = None,
@@ -356,6 +369,8 @@ class CAMLP(Base):
             self.check_tol = False
         elif rtol_provided and atol_provided:
             self.check_tol = True
+            self.rtol = rtol
+            self.atol = atol
         else:
             self.check_tol = False
 
@@ -438,7 +453,9 @@ class CAMLP(Base):
         while remaining_iter > 0:
             F_new = self._propagate()
 
-            if self.check_tol and np.allclose(self.F_, F_new, rtol=self.rtol, atol=self.atol):
+            if self.check_tol and np.allclose(
+                self.F_, F_new, rtol=self.rtol, atol=self.atol
+            ):
                 break
 
             self.F_ = F_new
@@ -446,12 +463,14 @@ class CAMLP(Base):
 
         return self.F_[:, 1]
 
+    def __repr__(self) -> str:
+        return CAMLP.NAME
+
+    def __str__(self) -> str:
+        return CAMLP.NAME
 
 
-
-
-
-class SocNL:
+class SocNL(TipGraphAlgorithm):
     """Socartes Network Labeling (SocNL).
 
     Originally published by Yuto Yamaguchi, MIT License.
@@ -462,21 +481,34 @@ class SocNL:
     License: MIT
     """
 
+    NAME = "socnl"
+
     def __init__(
         self,
         graph: Union[np.ndarray, sparse.spmatrix] = None,
-        max_iter:int = 30,
+        max_iter: int = 30,
         prior_lambda: float = 1.0,
-        check_tol: bool = True,
-        rtol: float = 1.e-5,
-        atol: float = 1.e-8,
+        rtol: float = 1.0e-5,
+        atol: float = 1.0e-8,
     ):
         self.max_iter = max_iter
         self.graph = graph
         self.prior_lambda = prior_lambda
-        self.check_tol = check_tol
-        self.rtol = rtol
-        self.atol = atol
+
+        rtol_provided = rtol is not None
+        atol_provided = atol is not None
+
+        if rtol_provided ^ atol_provided:
+            warnings.warn(
+                "You need to provide both rtol and atol if you want to use tolerance"
+            )
+            self.check_tol = False
+        elif rtol_provided and atol_provided:
+            self.check_tol = True
+            self.rtol = rtol
+            self.atol = atol
+        else:
+            self.check_tol = False
 
     def fit(self, x, y) -> "SocNL":
         raise NotImplementedError(
@@ -521,21 +553,20 @@ class SocNL:
         y = prior_f[:-1, :]
         a = prior_f[-1, :]
 
-        y = prior_f[prior_f[:, -1]==1, :]
-
+        y = prior_f[prior_f[:, -1] == 1, :]
 
         labeled_nodes = y.shape[0]
-        Au = A[labeled_nodes:,:]
+        Au = A[labeled_nodes:, :]
         if a.sum() == 0:
-            Du = sparse.diags(np.array(1.0/Au.sum(1).T)[0],0) # (Du + (a-1)I)^{-1}
+            Du = sparse.diags(np.array(1.0 / Au.sum(1).T)[0], 0)  # (Du + (a-1)I)^{-1}
             r = 0
         else:
-            Du = sparse.diags(np.array(1.0/(Au.sum(1)+a.sum()).T)[0],0) # Du^{-1}
-            r = Du.dot(np.outer(np.ones(A.shape[0]-labeled_nodes),a)) # Du^{-1}*1a^T
-        f = np.zeros((Au.shape[0],y.shape[1])) / y.shape[1]
-        Pu = Du.dot(Au) # (Du + (a-1)I)^{-1} * Au
-        Puu = Pu[:,labeled_nodes:]
-        Pul = Pu[:,:labeled_nodes]
+            Du = sparse.diags(np.array(1.0 / (Au.sum(1) + a.sum()).T)[0], 0)  # Du^{-1}
+            r = Du.dot(np.outer(np.ones(A.shape[0] - labeled_nodes), a))  # Du^{-1}*1a^T
+        f = np.zeros((Au.shape[0], y.shape[1])) / y.shape[1]
+        Pu = Du.dot(Au)  # (Du + (a-1)I)^{-1} * Au
+        Puu = Pu[:, labeled_nodes:]
+        Pul = Pu[:, :labeled_nodes]
 
         for _ in range(self.max_iter):
             f_new = Puu.dot(f) + Pul.dot(y) + r
@@ -546,3 +577,19 @@ class SocNL:
             f = f_new
 
         return np.concat([y, f], axis=0)
+
+    def __repr__(self) -> str:
+        return SocNL.NAME
+
+    def __str__(self) -> str:
+        return SocNL.NAME
+
+
+if __name__ == "__main__":
+    print("test")
+    print(SocNL)
+    print(str(SocNL))
+    print(repr(SocNL))
+    print(SocNL())
+    print(str(SocNL()))
+    print(repr(SocNL()))

@@ -87,5 +87,8 @@ the same file multiple times.
 
 ### TODO
 
-- [ ] Finish tests for sciserver.py
-- [ ] Add SocNL
+- [ ] Improve Test Coverage for SciServer Backend
+- [x] Add SocNL
+- [ ] Add Elsevier Backend
+- [ ] Add Tests for Elsevier Backend
+- [ ] Generate small networks for integration tests
