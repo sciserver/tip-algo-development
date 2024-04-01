@@ -38,7 +38,7 @@ try:
 
     pandarallel.initialize(progress_bar=True)
     PARALLEL_APPLY = True
-except ImportError:
+except ImportError: # pragma: no cover
     warnings.warn(
         "pandarallel not installed, parallel processing will not be available."
     )

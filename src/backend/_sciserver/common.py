@@ -34,18 +34,6 @@ import pandas as pd
 import scipy.sparse as sparse
 
 import src.label_prop.algorithms as algos
-
-try:
-    from pandarallel import pandarallel
-
-    pandarallel.initialize(progress_bar=True)
-    PARALLEL_APPLY = True
-except ImportError:
-    warnings.warn(
-        "pandarallel not installed, parallel processing will not be available."
-    )
-    PARALLEL_APPLY = False
-
 import src.utils.log_time as log_time
 
 
